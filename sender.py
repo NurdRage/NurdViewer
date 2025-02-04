@@ -8,100 +8,137 @@ from av import VideoFrame
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 import websockets
 
+# This class is a custom VideoStreamTrack that captures the screen.
 class ScreenShareTrack(VideoStreamTrack):
     def __init__(self):
+        # Call the parent class's initializer.
         super().__init__()
         print("[DEBUG] Initializing screen capture...")
+        # Create an mss instance for screen capture.
         self.sct = mss()
+        # Choose the primary monitor (index 1) for capturing.
         self.monitor = self.sct.monitors[1]
-        self.kind = "video"  # Explicitly mark as video track
-        print("[DEBUG] Screen capture initialized.")
+        # Mark this track as a video track.
+        self.kind = "video"
+        print(f"[DEBUG] Screen capture initialized. Monitor info: {self.monitor}")
 
     async def recv(self):
-        print("[DEBUG] Capturing screen frame...")
+        # This method is called repeatedly to capture frames.
+        print("[DEBUG] Starting to capture a screen frame...")
+        # Get the next timestamp (presentation time stamp) and time base.
         pts, time_base = await self.next_timestamp()
+        print(f"[DEBUG] Obtained timestamp: pts={pts}, time_base={time_base}")
+        # Capture the screen using mss and convert the result to a NumPy array.
         img = np.array(self.sct.grab(self.monitor))
+        print(f"[DEBUG] Raw image captured. Shape: {img.shape}")
+        # Convert the image from BGRA format to BGR (which OpenCV uses).
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        # Create a VideoFrame object from the NumPy array.
         frame = VideoFrame.from_ndarray(img, format="bgr24")
+        # Set the presentation time stamp and time base for the frame.
         frame.pts = pts
         frame.time_base = time_base
-        print("[DEBUG] Frame captured and formatted.")
+        print("[DEBUG] Frame processed and formatted. Returning frame.")
+        # Return the frame so it can be sent over the WebRTC connection.
         return frame
 
+# The main function to run the sender.
 async def run(pc, signaling_uri, room_id):
     print(f"[DEBUG] Connecting to signaling server at {signaling_uri}, room {room_id}...")
-
     try:
+        # Open a WebSocket connection to the signaling server for the given room.
         async with websockets.connect(f"{signaling_uri}/ws/{room_id}") as websocket:
             print("[DEBUG] Connected to signaling server.")
 
+            # Create an instance of our custom screen capture track.
             track = ScreenShareTrack()
             print("[DEBUG] Adding video track to WebRTC connection...")
+            # Add the video track to the RTCPeerConnection.
             pc.addTrack(track)
+            print("[DEBUG] Video track added successfully.")
 
-            # Force WebRTC to renegotiate if necessary
+            # Define an event handler that is triggered when renegotiation is needed.
             @pc.on("negotiationneeded")
             async def on_negotiationneeded():
-                print("[DEBUG] WebRTC renegotiation triggered.")
+                print("[DEBUG] Negotiation needed triggered.")
                 try:
+                    # Create an SDP offer based on the current connection state.
                     offer = await pc.createOffer()
+                    print(f"[DEBUG] Offer created. SDP (first 200 chars): {offer.sdp[:200]}...")
+                    # Set the local description with the created offer.
                     await pc.setLocalDescription(offer)
-                    print(f"[DEBUG] WebRTC offer created:\n{offer.sdp[:200]}...")  # Log first 200 chars of SDP
-
-                    print("[DEBUG] Sending offer to signaling server...")
-                    await websocket.send(json.dumps({"type": "offer", "sdp": pc.localDescription.sdp}))
+                    print("[DEBUG] Local description set successfully.")
+                    # Create a JSON payload containing the SDP offer.
+                    offer_payload = json.dumps({"type": "offer", "sdp": pc.localDescription.sdp})
+                    print(f"[DEBUG] Sending offer payload (first 100 chars): {offer_payload[:100]}...")
+                    # Send the offer payload to the signaling server.
+                    await websocket.send(offer_payload)
+                    print("[DEBUG] Offer sent to signaling server.")
                 except Exception as e:
-                    print(f"[ERROR] Failed to create/send offer: {e}")
+                    print(f"[ERROR] Exception during negotiation: {e}")
 
-            # Ensure offer is sent immediately
+            # Trigger the initial negotiation.
             print("[DEBUG] Triggering initial negotiation...")
             await on_negotiationneeded()
 
+            # Listen for messages from the signaling server.
             async for message in websocket:
-                print(f"[DEBUG] Message received from signaling server: {message[:100]}...")  # Log first 100 chars
+                print(f"[DEBUG] Message received from signaling server (first 100 chars): {message[:100]}...")
                 try:
+                    # Parse the incoming message from JSON.
                     data = json.loads(message)
-                    if data["type"] == "answer":
-                        print("[DEBUG] Received answer from server.")
+                    if data.get("type") == "answer":
+                        print("[DEBUG] Answer received from signaling server.")
+                        # Create an RTCSessionDescription from the answer.
                         answer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
+                        # Set the remote description with the answer.
                         await pc.setRemoteDescription(answer)
-                        print("[DEBUG] WebRTC connection established.")
+                        print("[DEBUG] Remote description set. WebRTC connection established.")
+                        # Exit the loop after processing the answer.
                         break
                 except json.JSONDecodeError:
                     print("[ERROR] Received invalid JSON from signaling server.")
                 except Exception as e:
-                    print(f"[ERROR] Error processing message from signaling server: {e}")
+                    print(f"[ERROR] Exception processing signaling message: {e}")
 
-            print("[DEBUG] Waiting indefinitely for video stream...")
-            await asyncio.Future()
+            # After the SDP exchange, wait indefinitely for video frames.
+            print("[DEBUG] Entering indefinite wait for video stream...")
+            await asyncio.Future()  # This never completes unless an error occurs.
 
     except Exception as e:
         print(f"[ERROR] Exception in WebSocket/WebRTC connection: {e}")
 
+# The entry point for the sender script.
 if __name__ == "__main__":
     print("[DEBUG] Starting sender script...")
-
+    
+    # Set up command-line argument parsing.
     parser = argparse.ArgumentParser(description="Screen Share Sender")
     parser.add_argument("--signaling", type=str, default="ws://localhost:8000",
                         help="WebSocket signaling server URL (e.g., ws://localhost:8000)")
     parser.add_argument("--room", type=str, default="testroom",
                         help="Room ID for pairing sender and receiver")
     args = parser.parse_args()
+    print("[DEBUG] Parsed arguments:", args)
 
+    # Create a new RTCPeerConnection for handling WebRTC.
     pc = RTCPeerConnection()
+    print("[DEBUG] Created RTCPeerConnection.")
 
+    # Try to obtain the current asyncio event loop.
     try:
         loop = asyncio.get_running_loop()
         print("[DEBUG] Using existing event loop.")
     except RuntimeError:
-        print("[DEBUG] Creating a new event loop.")
+        print("[DEBUG] No running event loop found. Creating a new event loop.")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
     try:
-        print("[DEBUG] Running async event loop.")
+        # Run the sender's main async function until it completes (which it won't unless interrupted).
+        print("[DEBUG] Running async event loop for sender...")
         loop.run_until_complete(run(pc, args.signaling, args.room))
     except KeyboardInterrupt:
-        print("[DEBUG] Sender script interrupted.")
+        print("[DEBUG] Sender script interrupted by user (KeyboardInterrupt).")
     except Exception as e:
         print(f"[ERROR] Unexpected error in main execution: {e}")
