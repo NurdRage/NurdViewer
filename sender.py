@@ -30,7 +30,7 @@ class ScreenShareTrack(VideoStreamTrack):
 
 async def run(pc, signaling_uri, room_id):
     print(f"[DEBUG] Connecting to signaling server at {signaling_uri}, room {room_id}...")
-    
+
     try:
         async with websockets.connect(f"{signaling_uri}/ws/{room_id}") as websocket:
             print("[DEBUG] Connected to signaling server.")
@@ -43,28 +43,40 @@ async def run(pc, signaling_uri, room_id):
             @pc.on("negotiationneeded")
             async def on_negotiationneeded():
                 print("[DEBUG] WebRTC renegotiation triggered.")
-                offer = await pc.createOffer()
-                await pc.setLocalDescription(offer)
-                print("[DEBUG] WebRTC offer created and set.")
+                try:
+                    offer = await pc.createOffer()
+                    await pc.setLocalDescription(offer)
+                    print(f"[DEBUG] WebRTC offer created:\n{offer.sdp[:200]}...")  # Log first 200 chars of SDP
 
-                print("[DEBUG] Sending offer to signaling server...")
-                await websocket.send(json.dumps({"type": "offer", "sdp": pc.localDescription.sdp}))
+                    print("[DEBUG] Sending offer to signaling server...")
+                    await websocket.send(json.dumps({"type": "offer", "sdp": pc.localDescription.sdp}))
+                except Exception as e:
+                    print(f"[ERROR] Failed to create/send offer: {e}")
+
+            # Ensure offer is sent immediately
+            print("[DEBUG] Triggering initial negotiation...")
+            await on_negotiationneeded()
 
             async for message in websocket:
-                print(f"[DEBUG] Message received: {message}")
-                data = json.loads(message)
-                if data["type"] == "answer":
-                    print("[DEBUG] Received answer from server.")
-                    answer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
-                    await pc.setRemoteDescription(answer)
-                    print("[DEBUG] WebRTC connection established.")
-                    break
+                print(f"[DEBUG] Message received from signaling server: {message[:100]}...")  # Log first 100 chars
+                try:
+                    data = json.loads(message)
+                    if data["type"] == "answer":
+                        print("[DEBUG] Received answer from server.")
+                        answer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
+                        await pc.setRemoteDescription(answer)
+                        print("[DEBUG] WebRTC connection established.")
+                        break
+                except json.JSONDecodeError:
+                    print("[ERROR] Received invalid JSON from signaling server.")
+                except Exception as e:
+                    print(f"[ERROR] Error processing message from signaling server: {e}")
 
-            print("[DEBUG] Waiting indefinitely...")
+            print("[DEBUG] Waiting indefinitely for video stream...")
             await asyncio.Future()
 
     except Exception as e:
-        print(f"[ERROR] Exception occurred in WebSocket connection: {e}")
+        print(f"[ERROR] Exception in WebSocket/WebRTC connection: {e}")
 
 if __name__ == "__main__":
     print("[DEBUG] Starting sender script...")
@@ -77,7 +89,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     pc = RTCPeerConnection()
-    
+
     try:
         loop = asyncio.get_running_loop()
         print("[DEBUG] Using existing event loop.")
@@ -91,6 +103,5 @@ if __name__ == "__main__":
         loop.run_until_complete(run(pc, args.signaling, args.room))
     except KeyboardInterrupt:
         print("[DEBUG] Sender script interrupted.")
-        pass
     except Exception as e:
         print(f"[ERROR] Unexpected error in main execution: {e}")
