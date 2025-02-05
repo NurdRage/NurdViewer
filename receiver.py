@@ -53,6 +53,14 @@ async def run(pc, signaling_uri, room_id):
         logger.debug("Filtered SDP (first 200 chars): %s", filtered_sdp[:200])
         offer = RTCSessionDescription(sdp=filtered_sdp, type=data["type"])
         logger.debug("Setting remote description with filtered SDP...")
+
+        # -------------------------------------
+        # **Add a forced recvonly transceiver** before applying the remote desc.
+        logger.debug("Adding forced recvonly transceiver for video on the receiver side.")
+        trans = pc.addTransceiver("video", direction="recvonly")
+        logger.debug("Created transceiver: %s", trans)
+        # -------------------------------------
+
         await pc.setRemoteDescription(offer)
         logger.debug("Remote description set successfully.")
 
@@ -103,4 +111,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
