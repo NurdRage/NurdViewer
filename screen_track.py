@@ -8,6 +8,8 @@ import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("ScreenTrack module loaded.")
 
 class ScreenShareTrack(VideoStreamTrack):
     """
@@ -22,25 +24,25 @@ class ScreenShareTrack(VideoStreamTrack):
         self.frame_rate = frame_rate
         # Calculate the delay between frames.
         self._frame_delay = 1 / frame_rate
-        logger.debug(f"ScreenShareTrack initialized with monitor: {self.monitor} and frame_rate: {frame_rate}")
+        logger.debug("ScreenShareTrack initialized with monitor: %s and frame_rate: %s", self.monitor, frame_rate)
 
     async def recv(self):
-        # Wait for the next frame timestamp.
+        logger.debug("Waiting for next frame timestamp...")
         pts, time_base = await self.next_timestamp()
 
-        # Sleep to regulate frame rate
+        logger.debug("Sleeping for frame delay: %f seconds", self._frame_delay)
         await asyncio.sleep(self._frame_delay)
 
-        # Capture the screen using mss.
+        logger.debug("Capturing screenshot from monitor: %s", self.monitor)
         screenshot = self.sct.grab(self.monitor)
         img = np.array(screenshot)
+        logger.debug("Screenshot captured; raw image shape: %s", img.shape)
 
-        # Convert the image from BGRA to BGR (if needed)
+        logger.debug("Converting image from BGRA to BGR")
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-        # Create a VideoFrame from the numpy array.
         frame = VideoFrame.from_ndarray(img, format="bgr24")
         frame.pts = pts
         frame.time_base = time_base
-        logger.debug(f"Captured frame: pts={pts}, shape={img.shape}")
+        logger.debug("Captured frame: pts=%s, shape=%s", pts, img.shape)
         return frame

@@ -25,6 +25,11 @@ Press 'q' in the OpenCV window to close the viewer.
 import asyncio
 import cv2
 from aiortc import MediaStreamTrack
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("Video consumer module loaded.")
 
 async def consume_video(track: MediaStreamTrack):
     """
@@ -33,25 +38,25 @@ async def consume_video(track: MediaStreamTrack):
 
     Press 'q' in the OpenCV window to exit the display loop.
     """
+    logger.debug("Starting video consumption from track: %s", track)
     try:
         while True:
-            # Receive the next frame from the track
+            logger.debug("Awaiting next video frame...")
             frame = await track.recv()
+            logger.debug("Frame received with pts: %s", frame.pts)
 
-            # Convert the aiortc frame to a NumPy array
             img = frame.to_ndarray(format="bgr24")
+            logger.debug("Converted frame to ndarray with shape: %s", img.shape)
 
-            # Show the frame in a named OpenCV window
             cv2.imshow("Remote Screen", img)
-
-            # If 'q' is pressed, exit the loop
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                logger.debug("Detected 'q' key press; exiting video consumer loop.")
                 break
 
     except asyncio.CancelledError:
-        # This may be raised if the track is closed or the app is shutting down
-        pass
+        logger.debug("Video consumption cancelled (likely due to track closure).")
+    except Exception as e:
+        logger.error("Error while consuming video: %s", e)
     finally:
-        # Clean up the OpenCV window to avoid dangling GUI issues
+        logger.debug("Cleaning up OpenCV windows in video consumer.")
         cv2.destroyAllWindows()
-
