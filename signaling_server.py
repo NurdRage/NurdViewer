@@ -8,7 +8,13 @@ logger = configure_logging(__name__)
 
 ROOMS = {}
 
-async def handler(websocket, path):
+async def handler(websocket, path=None):
+    # If 'path' is not provided, try to retrieve it from the websocket.
+    if path is None:
+        try:
+            path = websocket.path
+        except AttributeError:
+            path = "/"
     room_id = path.strip("/").split("/")[-1]
     logger.debug("New connection attempt to room: %s", room_id)
     if room_id not in ROOMS:
@@ -19,7 +25,6 @@ async def handler(websocket, path):
     try:
         async for message in websocket:
             logger.debug("Received message in room %s: %s", room_id, message[:100])
-            # Relay the message to all other connections in the same room
             for peer in ROOMS[room_id]:
                 if peer != websocket:
                     await peer.send(message)
