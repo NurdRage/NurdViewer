@@ -11,6 +11,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 import websockets
 
 from log_config import configure_logging
+from video_consumer import consume_video  # <--- Our new modular consumer
 
 logger = configure_logging(__name__)
 
@@ -31,6 +32,7 @@ async def run(pc, signaling_uri, room_id):
     async with websockets.connect(f"{signaling_uri}/ws/{room_id}") as websocket:
         logger.debug("Successfully connected to signaling server.")
         logger.debug("Waiting for WebRTC offer message...")
+
         offer_msg = await websocket.recv()
         logger.debug("Raw offer message received (first 100 chars): %s", offer_msg[:100])
         try:
@@ -65,8 +67,9 @@ async def run(pc, signaling_uri, room_id):
         @pc.on("track")
         def on_track(track):
             logger.debug(f"Receiver got track of kind={track.kind}")
-            # Here you could process or display frames from the track if needed.
-            # E.g., if track.kind == "video": handle frames
+            # If it's a video track, launch a consumer to display it in OpenCV
+            if track.kind == "video":
+                asyncio.ensure_future(consume_video(track))
 
         @pc.on("iceconnectionstatechange")
         def on_ice_state_change():
