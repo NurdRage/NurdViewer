@@ -26,7 +26,7 @@ class LogRecordStreamHandler(socketserver.StreamRequestHandler):
 class LogRecordSocketReceiver(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     def __init__(self, host='0.0.0.0', port=9020, handler=LogRecordStreamHandler):
-        socketserver.ThreadingTCPServer.__init__(self, (host, port), handler)
+        super().__init__((host, port), handler)
         # Configure the central logger.
         self.logger = logging.getLogger('CentralLogger')
         self.logger.setLevel(logging.DEBUG)

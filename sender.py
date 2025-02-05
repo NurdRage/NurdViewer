@@ -23,12 +23,10 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-central_ip = os.environ.get("CENTRAL_LOG_IP")
-if central_ip:
-    central_handler = logging.handlers.SocketHandler(central_ip, 9020)
-    logging.getLogger().addHandler(central_handler)
-else:
-    logging.error("CENTRAL_LOG_IP environment variable is not set. Central logs will not be forwarded.")
+central_ip = os.environ.get("CENTRAL_LOG_IP", "127.0.0.1")
+logging.debug(f"Using central logging IP: {central_ip}")
+central_handler = logging.handlers.SocketHandler(central_ip, 9020)
+logging.getLogger().addHandler(central_handler)
 
 # Helper function for same-line logging.
 def log_same_line(message: str):
