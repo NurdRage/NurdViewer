@@ -101,8 +101,8 @@ async def run(pc, signaling_uri, room_id):
                 except Exception as e:
                     print(f"[ERROR] Exception processing signaling message: {e}")
 
-            # After the SDP exchange, wait indefinitely for video frames.
             print("[DEBUG] Entering indefinite wait for video stream...")
+            # After the SDP exchange, wait indefinitely for video frames.
             await asyncio.Future()  # This never completes unless an error occurs.
 
     except Exception as e:
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     pc = RTCPeerConnection()
     print("[DEBUG] Created RTCPeerConnection.")
 
-    # Try to obtain the current asyncio event loop.
+    # Try to obtain the current asyncio event loop; if none, create one.
     try:
         loop = asyncio.get_running_loop()
         print("[DEBUG] Using existing event loop.")

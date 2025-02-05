@@ -2,11 +2,13 @@ import asyncio
 import argparse
 import json
 import cv2
+import threading
 from aiortc import RTCPeerConnection, RTCSessionDescription
 import websockets
 
-# This function removes unwanted RTX lines from the SDP,
-# because our aiortc library doesn't support the RTX codec.
+# Global variable to hold the main event loop reference.
+global_loop = None
+
 def remove_rtx_from_sdp(sdp: str) -> str:
     """
     Remove RTX-related lines from the SDP to prevent aiortc from trying to create
@@ -29,7 +31,6 @@ def remove_rtx_from_sdp(sdp: str) -> str:
     print("[DEBUG] Finished SDP filtering.")
     return filtered_sdp
 
-# The main function to run the receiver.
 async def run(pc, signaling_uri, room_id):
     print(f"[DEBUG] Attempting to connect to signaling server at {signaling_uri}, room {room_id}...")
     try:
@@ -76,51 +77,49 @@ async def run(pc, signaling_uri, room_id):
 
             print("[DEBUG] WebRTC connection established. Waiting for video track...")
 
-            # Set up an event handler for when a track is received.
             @pc.on("track")
             def on_track(track):
                 print(f"[DEBUG] Track event fired. Track kind: {track.kind}")
                 if track.kind == "video":
-                    print("[DEBUG] Video track detected! Starting video display coroutine...")
-
-                    # This asynchronous function will display the incoming video frames.
-                    async def display_video():
-                        frame_count = 0  # Counter to track number of frames received.
+                    print("[DEBUG] Video track detected! Starting video display in a separate thread...")
+                    
+                    def run_display():
+                        # Create a named window (this can help force OpenCV to update properly)
+                        cv2.namedWindow("Remote Desktop", cv2.WINDOW_NORMAL)
+                        frame_count = 0
                         while True:
                             try:
-                                # Wait for the next video frame from the track.
-                                frame = await track.recv()
+                                # Use run_coroutine_threadsafe to get the next video frame from the async track.
+                                future = asyncio.run_coroutine_threadsafe(track.recv(), global_loop)
+                                frame = future.result(timeout=5)  # wait up to 5 seconds for a frame
                                 frame_count += 1
-                                print(f"[DEBUG] Received video frame #{frame_count}")
+                                print(f"[DEBUG] (Thread) Received video frame #{frame_count}")
                                 # Convert the frame to a NumPy array that OpenCV can use.
                                 img = frame.to_ndarray(format="bgr24")
-                                # Display the image in a window titled "Remote Desktop".
                                 cv2.imshow("Remote Desktop", img)
-                                # Call cv2.waitKey to process GUI events (1 millisecond delay).
+                                # Process GUI events with a short delay.
                                 if cv2.waitKey(1) & 0xFF == ord('q'):
-                                    print("[DEBUG] User pressed 'q'. Exiting video display loop.")
+                                    print("[DEBUG] (Thread) User pressed 'q'. Exiting video display loop.")
                                     break
                             except Exception as e:
-                                print(f"[ERROR] Exception while processing video frame: {e}")
+                                print(f"[ERROR] (Thread) Exception while processing video frame: {e}")
                                 break
-                        # Once the loop is done, destroy the OpenCV window.
-                        print("[DEBUG] Exiting video display coroutine. Destroying OpenCV windows.")
+                        print("[DEBUG] (Thread) Exiting video display thread. Destroying OpenCV windows.")
                         cv2.destroyAllWindows()
-                    
-                    # Schedule the display_video() coroutine to run concurrently.
-                    asyncio.ensure_future(display_video())
+
+                    # Start the display thread.
+                    t = threading.Thread(target=run_display, daemon=True)
+                    t.start()
                 else:
-                    # For non-video tracks, simply log their receipt.
                     print(f"[DEBUG] Non-video track received: {track.kind}")
 
-            # Keep the connection alive indefinitely by waiting on a never-ending future.
             print("[DEBUG] Entering indefinite wait state for further events.")
+            # Keep the connection alive indefinitely.
             await asyncio.Future()
 
     except Exception as e:
         print(f"[ERROR] Exception occurred in run(): {e}")
 
-# The entry point for the receiver script.
 if __name__ == "__main__":
     print("[DEBUG] Starting receiver script...")
 
@@ -137,7 +136,7 @@ if __name__ == "__main__":
     pc = RTCPeerConnection()
     print("[DEBUG] Created RTCPeerConnection.")
 
-    # Try to get the currently running asyncio event loop.
+    # Try to get the current running event loop; if none, create one.
     try:
         loop = asyncio.get_running_loop()
         print("[DEBUG] Using existing event loop.")
@@ -146,8 +145,11 @@ if __name__ == "__main__":
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+    # Assign the main event loop to the global variable so that the display thread can use it.
+    global_loop = loop
+
     try:
-        # Run the receiver's main async function until it completes (which it won't unless interrupted).
+        # Run the receiver's main async function until it completes.
         print("[DEBUG] Running async event loop for receiver...")
         loop.run_until_complete(run(pc, args.signaling, args.room))
     except KeyboardInterrupt:
