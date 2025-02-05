@@ -3,10 +3,16 @@ import argparse
 import json
 import cv2
 import numpy as np
+import sys  # Added for same-line logging
 from mss import mss
 from av import VideoFrame
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 import websockets
+
+# Helper function for updating debug logs on the same line.
+def log_same_line(message: str):
+    sys.stdout.write("\r" + message)
+    sys.stdout.flush()
 
 # This class is a custom VideoStreamTrack that captures the screen.
 class ScreenShareTrack(VideoStreamTrack):
@@ -23,23 +29,17 @@ class ScreenShareTrack(VideoStreamTrack):
         print(f"[DEBUG] Screen capture initialized. Monitor info: {self.monitor}")
 
     async def recv(self):
-        # This method is called repeatedly to capture frames.
-        print("[DEBUG] Starting to capture a screen frame...")
-        # Get the next timestamp (presentation time stamp) and time base.
+        # Instead of printing new lines for every frame, we update the same line.
+        log_same_line("[DEBUG] Starting to capture a screen frame...")
         pts, time_base = await self.next_timestamp()
-        print(f"[DEBUG] Obtained timestamp: pts={pts}, time_base={time_base}")
-        # Capture the screen using mss and convert the result to a NumPy array.
+        log_same_line(f"[DEBUG] Obtained timestamp: pts={pts}, time_base={time_base}")
         img = np.array(self.sct.grab(self.monitor))
-        print(f"[DEBUG] Raw image captured. Shape: {img.shape}")
-        # Convert the image from BGRA format to BGR (which OpenCV uses).
+        log_same_line(f"[DEBUG] Raw image captured. Shape: {img.shape}")
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        # Create a VideoFrame object from the NumPy array.
         frame = VideoFrame.from_ndarray(img, format="bgr24")
-        # Set the presentation time stamp and time base for the frame.
         frame.pts = pts
         frame.time_base = time_base
-        print("[DEBUG] Frame processed and formatted. Returning frame.")
-        # Return the frame so it can be sent over the WebRTC connection.
+        log_same_line("[DEBUG] Frame processed and formatted. Returning frame.")
         return frame
 
 # The main function to run the sender.
