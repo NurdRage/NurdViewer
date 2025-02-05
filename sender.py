@@ -16,8 +16,7 @@ async def on_negotiationneeded(pc, websocket):
     await pc.setLocalDescription(offer)
 
     logger.debug("Offer created and local description set. SDP (first 200 chars): %s", str(offer)[:200])
-    # Print full localDescription SDP for debugging
-    logger.debug("Final local SDP (sender):\n%s", pc.localDescription.sdp)
+    logger.debug("Full local SDP (sender):\n%s", pc.localDescription.sdp)
 
     payload = json.dumps({"type": "offer", "sdp": pc.localDescription.sdp})
     logger.debug("Sending offer payload: %s", payload[:200])
@@ -33,14 +32,14 @@ async def run(pc, signaling_uri, room_id):
         monitor_info = {'left': 0, 'top': 0, 'width': 1920, 'height': 1080}
         logger.debug("Screen capture initialized. Monitor info: %s", monitor_info)
 
-        # Create and configure the video track
         video_track = ScreenShareTrack(monitor=monitor_info, frame_rate=15.0)
         logger.debug("ScreenShareTrack created. Replacing old pc.addTrack approach with a sendonly transceiver.")
 
-        # Instead of pc.addTrack(video_track), do:
-        transceiver = pc.addTransceiver(kind="video", direction="sendonly")
+        # Use the older aiortc signature: pass "video" as a positional arg, direction="sendonly"
+        transceiver = pc.addTransceiver("video", direction="sendonly")
+        logger.debug("Transceiver created with direction=sendonly.")
         transceiver.sender.replaceTrack(video_track)
-        logger.debug("Transceiver created with direction=sendonly, track replaced successfully.")
+        logger.debug("Track replaced in transceiver.sender successfully.")
 
         logger.debug("Triggering initial negotiation...")
         await on_negotiationneeded(pc, websocket)
@@ -66,7 +65,6 @@ async def run(pc, signaling_uri, room_id):
                 answer_sdp = data["sdp"]
                 await pc.setRemoteDescription(RTCSessionDescription(sdp=answer_sdp, type="answer"))
                 logger.debug("Remote description set. WebRTC handshake complete.")
-                # Print final remoteDescription for debugging
                 logger.debug("Final remote SDP (sender sees answer):\n%s", pc.remoteDescription.sdp)
                 break
             else:
