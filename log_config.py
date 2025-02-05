@@ -1,28 +1,42 @@
+#!/usr/bin/env python3
 import os
+import logging
+import logging.handlers
+import types
 
-def get_central_logging_ip():
-    """
-    Check for the CENTRAL_LOG_IP environment variable.
-    If not set, prompt the user if they want to enable centralized logging.
-    If the user declines (or enters no value), return None.
-    Otherwise, return the IP address entered (or the existing environment value).
-    """
-    ip = os.environ.get("CENTRAL_LOG_IP")
-    if ip:
-        return ip.strip()
-    else:
+class SafeSocketHandler(logging.handlers.SocketHandler):
+    def makePickle(self, record):
+        # If record.args is a generator, convert it to a tuple.
+        if record.args and isinstance(record.args, types.GeneratorType):
+            record.args = tuple(record.args)
+        return super().makePickle(record)
+
+def configure_logging(logger_name):
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.DEBUG)
+    # Get the CENTRAL_LOG_IP from environment (or prompt if not set)
+    central_log_ip = os.getenv('CENTRAL_LOG_IP')
+    if not central_log_ip:
         try:
-            # Ask the user if they want to set up centralized logging
-            response = input("CENTRAL_LOG_IP is not set. Would you like to configure centralized logging? (y/n): ")
-            if response.lower().startswith("y"):
-                ip_input = input("Please enter the central logging server IP (default is 127.0.0.1): ")
-                ip_final = ip_input.strip() if ip_input.strip() else "127.0.0.1"
-                os.environ["CENTRAL_LOG_IP"] = ip_final
-                return ip_final
+            answer = input("CENTRAL_LOG_IP is not set. Would you like to configure centralized logging? (y/n): ").strip().lower()
+            if answer == 'y':
+                inp = input("Please enter the central logging server IP (default is 127.0.0.1): ").strip()
+                central_log_ip = inp if inp else "127.0.0.1"
+                os.environ["CENTRAL_LOG_IP"] = central_log_ip
             else:
-                # User declined centralized logging
-                return None
-        except Exception as e:
-            print(f"Error during centralized logging configuration: {e}")
-            return None
+                # If the user declines, skip adding the socket handler.
+                return logger
+        except Exception:
+            central_log_ip = "127.0.0.1"
+            os.environ["CENTRAL_LOG_IP"] = central_log_ip
 
+    try:
+        sh = SafeSocketHandler(central_log_ip, 9020)
+        sh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+        sh.setFormatter(formatter)
+        logger.addHandler(sh)
+        logger.debug("Using central logging IP: %s", central_log_ip)
+    except Exception as e:
+        logger.error("Failed to configure centralized logging: %s", e)
+    return logger

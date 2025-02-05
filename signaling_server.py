@@ -1,74 +1,44 @@
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from typing import Dict, List
-import logging
-import logging.handlers
+#!/usr/bin/env python3
 import os
-from log_config import get_central_logging_ip
+import asyncio
+import websockets
+from log_config import configure_logging
 
-# Logging configuration
-SCRIPT_NAME = os.path.splitext(os.path.basename(__file__))[0]
-LOCAL_LOG_FILENAME = f"{SCRIPT_NAME}.log"
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(LOCAL_LOG_FILENAME, mode='w'),
-        logging.StreamHandler()
-    ]
-)
+logger = configure_logging(__name__)
 
-# Configure centralized logging if an IP is provided.
-central_ip = get_central_logging_ip()
-if central_ip:
-    logging.debug(f"Using central logging IP: {central_ip}")
-    central_handler = logging.handlers.SocketHandler(central_ip, 9020)
-    logging.getLogger().addHandler(central_handler)
-else:
-    logging.debug("Central logging is disabled.")
+ROOMS = {}
 
-# Create a new FastAPI application instance.
-app = FastAPI()
-
-# Dictionary to store active rooms.
-rooms: Dict[str, List[WebSocket]] = {}
-
-@app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str):
-    logging.debug(f"New connection attempt to room: {room_id}")
-    await websocket.accept()
-    logging.debug(f"Connection accepted for room: {room_id}")
-
-    if room_id not in rooms:
-        rooms[room_id] = []
-        logging.debug(f"Created new room entry for: {room_id}")
-    
-    rooms[room_id].append(websocket)
-    logging.debug(f"Current number of connections in room {room_id}: {len(rooms[room_id])}")
-
+async def handler(websocket, path):
+    room_id = path.strip("/").split("/")[-1]
+    logger.debug("New connection attempt to room: %s", room_id)
+    if room_id not in ROOMS:
+        ROOMS[room_id] = set()
+        logger.debug("Created new room entry for: %s", room_id)
+    ROOMS[room_id].add(websocket)
+    logger.debug("Current number of connections in room %s: %d", room_id, len(ROOMS[room_id]))
     try:
-        while True:
-            logging.debug(f"Waiting for message in room {room_id}...")
-            data = await websocket.receive_text()
-            logging.debug(f"Received message in room {room_id}: {data}")
-
-            for connection in rooms[room_id]:
-                if connection != websocket:
-                    logging.debug(f"Relaying message to a different connection in room {room_id}")
-                    await connection.send_text(data)
-            logging.debug(f"Finished relaying message in room {room_id}.")
-    except WebSocketDisconnect:
-        logging.debug(f"WebSocket disconnected from room: {room_id}.")
+        async for message in websocket:
+            logger.debug("Received message in room %s: %s", room_id, message[:100])
+            # Relay the message to all other connections in the same room
+            for peer in ROOMS[room_id]:
+                if peer != websocket:
+                    await peer.send(message)
+            logger.debug("Finished relaying message in room %s.", room_id)
     except Exception as e:
-        logging.error(f"Exception in room {room_id}: {e}")
+        logger.error("Error in handler: %s", e)
     finally:
-        if websocket in rooms.get(room_id, []):
-            rooms[room_id].remove(websocket)
-            logging.debug(f"Removed disconnected socket from room {room_id}.")
-        if not rooms.get(room_id):
-            del rooms[room_id]
-            logging.debug(f"Room {room_id} is now empty and removed.")
+        ROOMS[room_id].remove(websocket)
+        logger.debug("Connection closed for room %s. Current connections: %d", room_id, len(ROOMS[room_id]))
 
-if __name__ == "__main__":
-    logging.debug("Starting signaling server on ws://0.0.0.0:8000...")
-    uvicorn.run("signaling_server:app", host="0.0.0.0", port=8000, log_level="debug")
+async def main():
+    host = "0.0.0.0"
+    port = 8000
+    logger.debug("Starting signaling server on ws://%s:%d...", host, port)
+    async with websockets.serve(handler, host, port):
+        await asyncio.Future()  # run forever
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Signaling server shut down.")
