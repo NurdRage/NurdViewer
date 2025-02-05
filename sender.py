@@ -11,6 +11,13 @@ import websockets
 import logging
 import logging.handlers
 import os
+from log_config import get_central_logging_ip
+
+def ensure_central_log_ip():
+    # This function is now handled by log_config.py, so we call it there.
+    return get_central_logging_ip()
+
+ensure_central_log_ip()
 
 # Logging configuration
 SCRIPT_NAME = os.path.splitext(os.path.basename(__file__))[0]
@@ -25,8 +32,11 @@ logging.basicConfig(
 )
 central_ip = os.environ.get("CENTRAL_LOG_IP", "127.0.0.1")
 logging.debug(f"Using central logging IP: {central_ip}")
-central_handler = logging.handlers.SocketHandler(central_ip, 9020)
-logging.getLogger().addHandler(central_handler)
+if central_ip:
+    central_handler = logging.handlers.SocketHandler(central_ip, 9020)
+    logging.getLogger().addHandler(central_handler)
+else:
+    logging.debug("Central logging is disabled.")
 
 # Helper function for same-line logging.
 def log_same_line(message: str):
@@ -67,7 +77,6 @@ async def run(pc, signaling_uri, room_id):
         async with websockets.connect(f"{signaling_uri}/ws/{room_id}") as websocket:
             logging.debug("Connected to signaling server.")
 
-            # Register ICE callback.
             register_ice_callback(pc)
 
             track = ScreenShareTrack()

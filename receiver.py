@@ -8,6 +8,7 @@ import websockets
 import logging
 import logging.handlers
 import os
+from log_config import get_central_logging_ip
 
 # Logging configuration
 SCRIPT_NAME = os.path.splitext(os.path.basename(__file__))[0]
@@ -20,19 +21,18 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-central_ip = os.environ.get("CENTRAL_LOG_IP", "127.0.0.1")
-logging.debug(f"Using central logging IP: {central_ip}")
-central_handler = logging.handlers.SocketHandler(central_ip, 9020)
-logging.getLogger().addHandler(central_handler)
+central_ip = get_central_logging_ip()
+if central_ip:
+    logging.debug(f"Using central logging IP: {central_ip}")
+    central_handler = logging.handlers.SocketHandler(central_ip, 9020)
+    logging.getLogger().addHandler(central_handler)
+else:
+    logging.debug("Central logging is disabled.")
 
 # Global variable to hold the main event loop reference.
 global_loop = None
 
 def remove_rtx_from_sdp(sdp: str) -> str:
-    """
-    Remove RTX-related lines from the SDP to prevent aiortc from trying to create
-    a decoder for the unsupported MIME type 'video/rtx'.
-    """
     logging.debug("Starting SDP filtering for RTX lines.")
     lines = sdp.splitlines()
     new_lines = []
