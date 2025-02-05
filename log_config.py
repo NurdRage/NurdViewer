@@ -4,6 +4,16 @@ import logging
 import logging.handlers
 import types
 
+"""
+log_config.py
+-------------
+Manages centralized logging configuration. If CENTRAL_LOG_IP is not set,
+it may prompt for user input (which can block in non-interactive environments).
+
+For a non-interactive environment, consider setting CENTRAL_LOG_IP manually
+(e.g., export CENTRAL_LOG_IP=<ip>) or pre-writing ~/.central_log_config.
+"""
+
 CONFIG_FILE = os.path.expanduser("~/.central_log_config")
 
 def read_central_log_ip():
@@ -14,7 +24,7 @@ def read_central_log_ip():
                 if ip:
                     os.environ["CENTRAL_LOG_IP"] = ip
                     return ip
-        except Exception as e:
+        except Exception:
             pass
     return None
 
@@ -27,6 +37,7 @@ def write_central_log_ip(ip):
 
 class SafeSocketHandler(logging.handlers.SocketHandler):
     def makePickle(self, record):
+        # Convert any generator args to a tuple before pickling
         if record.args and isinstance(record.args, types.GeneratorType):
             record.args = tuple(record.args)
         return super().makePickle(record)

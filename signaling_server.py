@@ -32,7 +32,8 @@ async def handler(websocket, path=None):
     except Exception as e:
         logger.error("Error in handler: %s", e)
     finally:
-        ROOMS[room_id].remove(websocket)
+        if websocket in ROOMS[room_id]:
+            ROOMS[room_id].remove(websocket)
         logger.debug("Connection closed for room %s. Current connections: %d", room_id, len(ROOMS[room_id]))
 
 async def main():

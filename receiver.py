@@ -62,6 +62,12 @@ async def run(pc, signaling_uri, room_id):
         await websocket.send(answer_payload)
         logger.debug("Answer sent (first 100 chars): %s", answer_payload[:100])
 
+        @pc.on("track")
+        def on_track(track):
+            logger.debug(f"Receiver got track of kind={track.kind}")
+            # Here you could process or display frames from the track if needed.
+            # E.g., if track.kind == "video": handle frames
+
         @pc.on("iceconnectionstatechange")
         def on_ice_state_change():
             logger.debug("ICE connection state changed to %s", pc.iceConnectionState)

@@ -5,7 +5,6 @@ from mss import mss
 from aiortc import VideoStreamTrack
 from av import VideoFrame
 import asyncio
-import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,4 +44,3 @@ class ScreenShareTrack(VideoStreamTrack):
         frame.time_base = time_base
         logger.debug(f"Captured frame: pts={pts}, shape={img.shape}")
         return frame
-
